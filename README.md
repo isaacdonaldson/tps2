@@ -1,17 +1,16 @@
 # Transaction Processing System 2
 
-- push to git
-
-This is a simple transaction processing system that processing 5 transaction types: Deposits, Withdrawals, Disputes, Resolutions, and Chargebacks.
+This is a simple transaction processing system that processes five transaction types:
+Deposits, Withdrawals, Disputes, Resolutions, and Chargebacks.
 
 ## Installation
 
-This project uses version `1.83.0` of rust. To install the project, run the following command:
+This project used version `1.83.0` of rust, so other versions are untested. To install the project, run the following command:
 
 ```bash
 git clone https://github.com/isaacdonaldson/tps2.git
 cd tps2
-cargo run -- transactions.csv > output.csv
+cargo run -- transactions.csv > accounts.csv
 ```
 
 ## Testing
@@ -24,76 +23,72 @@ cargo test
 
 ## Error Handling
 
-There are 2 error types that are implemented using the `thiserror` crate: one if for the main running of the program, and the other encodes all the various transaction failure states that could be encountered. The benefit of using `thiserror` is that it is trivial to implement the `From<TransactionError>` for the higher level error enum. This allows all the errors I defined (and the others interfacing with like io::Error and csv::Error) to work nicely together.
+There are two error types implemented using the `thiserror` crate. One covers the main program runtime, and the other encodes all possible transaction failure states. By using `thiserror`, it becomes trivial to implement `From<TransactionError>` for the higher-level error enumeration, allowing seamless interplay with other errors like `io::Error` and `csv::Error`.
 
-There are some errors that one can encounter that make further progress impossible, but these are all contained in the `fn main()` and are quite obvious (file not existing, parsing error, etc...). All other "errors" are intended to allow continuation of transaction processing while being logged using `eprintln!`. That means they will not be shown when the output is piped into a file, but will still be printed to stdout.
+Some errors (e.g., missing files or parsing problems) make further processing impossible and are handled in `fn main()`. All other errors are logged to stderr using `eprintln!` without affecting standard output.
 
 ## Decimal Type
 
-I use the `rust_decimal` crate because using floats for money is famously a bad idea. I use the decimal crate to prevent the precision errors floats have, and can easily use the proper precision of 4 decimal places without having to use much extra overhead. There is a nice builtin deserialization ability that works well with the `csv` crate. There is one function I implemented that converts the `Decimal` type to the proper precision string, and it would be trivial to change the precision because of that.
+The `rust_decimal` crate is used instead of floating-point numbers because floating-point precision issues make them unsuitable for monetary values. The `Decimal` type avoids precision errors and can easily provide the required four decimal places with minimal overhead. Serialization and deserialization are straightforward with the `csv` crate (because the provided compatibility functionality), and precision can be centrally managed when converting `Decimal` to a string.
 
 ## CSV Reading
 
-The `csv` crate provides a very nice interface to read the csv file by providing the ability to deserialize directly into the defined struct, as well as using a `BufRead` internally for buffered reading (better on memory consumption). I took this 1-step further by wrapping the CSV reader iterator in a new srtuct, and implemeting the `Iterator` trait on that. This allowed me to chunk the input data, and save on memory consumption even more by only reading (and then freeing) 100 rows at a time (this is trivially configurable). Benchmarking showed no change in performance, while consuming ~30% less memory.
+The `csv` crate provides an easy way to deserialize CSV data directly into a defined struct. It uses `BufRead` for buffered reading, improving memory usage. To optimize further, I wrapped the CSV reader in a custom iterator that processes data in chunks of 100 rows (configurable), freeing memory after each chunk. Benchmarking showed reduced memory usage by roughly 30%.
 
-Besides saving memory, converting the `Iterator` into a `future::Stream` would be relatively straightforward if we decide to add support for asynchronous processing. Collecting data from other sources like TCP, file I/O, or databases would be quite simple since the main processing loop operates on chunks of data. We could easily pass CSV data through an asynchronous channel from multiple sources without much difficulty.
+This approach also makes it simpler to convert the iterator into a `future::Stream` if we decide to add asynchronous processing. The chunk-based design allows data from multiple sources (e.g., TCP, file I/O, databases) to be collected in an asynchronous pipeline without changing the core processing flow.
 
 ## Design Considerations
 
-The following are some design considerations I thought are worth mentioning.
-
 ### Implementing a Transaction Trait
 
-I thought about implementing a trait that would provide methods to check validity, apply the forward action , and revert in case it was incorrect. This would also open the door to implementing a write ahead log based system that could provide some database like transactions.
-
-The time constraint meant this was pretty unfeasable, and for a project this small it would have made the code less readable so I opted to not do this and do the validity checks, the actions, and the reverts inline to be clearer.
+I considered creating a common trait for every transaction type, including methods to validate, apply, and revert transactions. This would allow the logic for rolling back changes to be centralized (and abstracted for a future atomic transaction extension), but for a project of this scope and under a time constraint I opted for inline checks, actions, and reversions to keep the code more straightforward and manageable.
 
 ### Transaction Types
 
-I found the main processing file grew quite quickly with all the processin logic for the transaction types included, so I opted to seperate each transaction type's processing logic into their own files. This is cleaner and allows for better future maintenence.
+Originally, the main processing file grew rapidly with all the transaction logic. To improve maintainability and clarity, I separated each transaction type’s logic into its own file. These are found under the `src/transactions/logic` directory.
 
-### `BTreeMap`
+### `HashMap` over `BTreeMap`
 
-Because we know that client ID's and transaction ID's are ordered numbers (by nature of being integers), we can use this fact to speed up the operations, and print ordered results, both are benefits when compared with a `HashMap`. This structure is also suitable when wrapped in other types like a `Mutex` or `RwLock`.
+A `HashMap` is used for storing client and transaction IDs because order is irrelevant and `HashMap` generally provides O(1) lookups compared to the O(log n) lookups of a `BTreeMap`. This approach also works well when combined with threading primitives like `RwLock` or `Arc<Mutex>`.
 
-Another option for multi-threaded environments is to mutex shard the `BTreeMap` by converting the `Arc<Mutex<BTreeMap<T>>>` into `Arc<Vec<Mutex<BTreeMap<T>>>>` which would ideally alleviate some of the locking in a high contention system. (The operations would happen on `let tree = sharded_trees[accessing_number % num_shards]` in this scenario)
+For multi-threaded scenarios with high contention, another strategy is "mutex sharding" by splitting the map into multiple smaller locks (`Arc<Vec<Mutex<HashMap<T>>>>`). This can reduce locking overhead in highly concurrent environments.
 
-### Using the Type System
+### Utilizing the Type System
 
-I used the type system quite a bit to provide clarity of intentions, but as well to limit the program to the defined behavior. For example, using an `Enum` for all possible transaction types allows the compiler to ensure that every transaction type is handled when using the `match` expression. In addition, creating types like `ClientList` and `TransactionManager` allows me to control what functionality is available to the programmer, restricting behaviours I don't want or adding functionality I do. This allows for better maintainability, but also allows for more correctness in the program.
+Enums for transaction types ensure that every case is handled in `match` expressions. Custom data types like `ClientList` and `TransactionManager` offer clearer organization and control over permitted operations, improving code clarity and reducing potential errors. Using the new type pattern like this helps clarify a developers intentions and when used more extensively, can resulting in more correct software.
 
-### Validity Checks and Faux Atomicity
+### Validity Checks and Basic Atomicity
 
-I added some validity checks to the program to ensure that the program is behaving as expected. Beyond the basic ones like checking a client or transaction exists, after each transaction I check if the client's balances are valid as explained in the document. Becuase the transactions are mutable, if the transaction is invalid, the transaction will be 'reversed' and the balances will be returned to their pre-transaction amounts. This is the most basic implementation of Atomicity.
+After each transaction, the system checks whether the client’s balances remain valid. If a transaction is invalid, it is reverted immediately, returning balances to their values before the transaction. This provides minimal atomicity for the operations in the system.
 
 ### Serde Serialization and Deserialization
 
-Using `serde` allows me to avoid some error prone areas with data ingestion and outputting. The serialization capability allows me to define the data type, and allow serde to handle the edge cases, where errors can easily occur. This allows me to focus on designing proper types, and a more correct system. It also integrates really well with the `csv` and `rust_decimal` crates to skip a lot of hard programming.
+Using `serde` helps avoid common pitfalls with data ingestion and output by automatically handling both serialization and deserialization. This integration with the `csv` and `rust_decimal` crates saves effort and reduces the likelihood of errors, letting me focus on designing correct types and logic.
 
 ## Possible Extensions
 
-### Scale and Concurreny
+### Scale and Concurrency
 
-There was some thought put into the ease of extension should the need arise for larger scale or more concurrent processing. One is to process in chunks, whether from a file or a channel this allows the processing to be agnostic to the data ingestion & delivery. As well, implementing the Iterator myself allows me to extend it to a `future::Stream` async iterator should the need arise. It would be straigtforward to read from many TCP sockets or open connections and process the list as it comes instead of waiting for it all to arrive at once. Like mentioned before, the data structures used are very compatible with being put inside a `Arc<Mutex<T>>` so they can then be used in a multi-threaded/async environment, as well as other improvements like mutex sharding. If there is gonna be high contention, then the mutable `ClientList` and `TransactionManager` could be converted to an async task/thread that communicates through a channel quite easily.
+The system is designed to support incremental scaling and concurrency. Chunk-based data processing that is source-agnostic, along with custom iterator functionality (would become `future::Stream` when async), can be easily adapted to many asynchronous source streams. Current data structures can be extended (using `Arc<Mutex<T>>`), and mutex sharding can reduce lock contention for high-traffic scenarios, while using channels to message pass to different tasks/threads would remove most lock contention if further extension steps were needed.
 
 ### Basic Atomicity
 
-Since this is financial data, data integrity is very important. The first extension I would add is atomic operations. Exchanging money with another account is a great example of an operation that is all or none, and I think that it would not be super hard to get some basic functionality. Since I already implemented the revert ability on the transactions, all that would be needed (alongside refactoring of the code to split the revert action into a function/trait impl) would be to have a log of operations for an ongoing "atomic transaction", and at the time it completes, it gets commited to the main data.
+Financial data requires strong data integrity. By expanding on the existing revert functionality, we could implement more robust atomic operations. For example, transferring funds across two accounts would require both changes to succeed or neither to apply; essentially a transaction rollback if any step fails like the all or none approach seen often in ACID databases. A write-ahead log or similar mechanism would be a logical next step.
 
 ## Assumptions
 
-### Failed Transactions continue program
+### Failed Transactions and Program Continuation
 
-If a transaction fails (ex: client has insufficient funds for a withdrawal), then the program should continue to process the rest of the transactions, only the failed transaction is skipped.
+When a transaction (e.g., withdrawal with insufficient funds) fails, the program continues to process subsequent transactions. Only the failed transaction is skipped.
 
 ### Dispute, Resolve, and Chargebacks only occur on Deposit transactions
 
-I assumed that disputes, resolutions, and chargebacks only occur on deposits. This is a reasonable assumption, as there is no clear way to handle these on other transaction types.
+I assumed that Disputes, resolutions, and chargebacks apply strictly to deposits. How to handle these operations for other transaction types is not clear, and thus it makes sense to ignore them.
 
 ### Frozen Account Prevents Activity
 
-I assumed that a frozen account prevents anymore transactions from being processed on it. So all 5 transaction types would be ignored for that account.
+I assumed that if an account becomes frozen, no transactions of any type are processed for that account thereafter.
 
 ### Accounts can be created
 
-I assumed that on failed transactions, the account can still be created and it will have no effect on the output as long as the transaction did not effect the account at all (i.e. Account exists but balances are all 0).
+Even if a transaction fails, I assumed the account still gets created (with zero balances) so it appears in the final output.
