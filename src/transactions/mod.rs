@@ -7,7 +7,7 @@ pub mod logic;
 pub mod manager;
 pub mod process;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TransactionId(u32);
 
 impl From<u32> for TransactionId {

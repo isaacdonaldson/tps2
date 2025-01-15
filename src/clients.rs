@@ -6,7 +6,7 @@ use std::fmt::{self, Display};
 use crate::decimal_to_string;
 
 // This allows us to order and compare id's in addition to all the other derive traits
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClientId(u16);
 
 impl Display for ClientId {

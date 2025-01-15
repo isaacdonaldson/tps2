@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // This is very similar to the ClientList struct in clients.rs
-// Transactions are intergers so they have natural order, so a HashMap is a good choice
+// Transactions are integers so they have natural order, so a HashMap is a good choice
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TransactionManager(HashMap<TransactionId, Transaction>);
 
