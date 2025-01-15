@@ -1,4 +1,10 @@
-use tps2::{clients, read_whole_csv, transactions, CsvChunkedReader};
+use tps2::{
+    clients::{self},
+    read_whole_csv, transactions, CsvChunkedReader,
+};
+
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 #[test]
@@ -17,10 +23,10 @@ fn basic_deposit_ignore() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // check here the values in the client pool
@@ -29,7 +35,7 @@ fn basic_deposit_ignore() {
 2, 0.0000, 0.0000, 0.0000, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
 }
 
 #[cfg(test)]
@@ -40,10 +46,10 @@ fn my_test_data() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // check here the values in the client pool
@@ -53,7 +59,7 @@ fn my_test_data() {
 3, 0.0000, 0.0000, 0.0000, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
 }
 
 #[cfg(test)]
@@ -64,10 +70,10 @@ fn basic_dispute() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // check here the values in the client pool
@@ -76,7 +82,7 @@ fn basic_dispute() {
 2, 2.0000, 0.0000, 2.0000, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
 }
 
 #[cfg(test)]
@@ -87,10 +93,10 @@ fn advanced_dispute() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // Cases covered here:
@@ -106,7 +112,7 @@ fn advanced_dispute() {
 2, 1.1250, 0.0000, 1.1250, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
 }
 
 #[cfg(test)]
@@ -117,10 +123,10 @@ fn many_transactions() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // check here the values in the client pool
@@ -128,7 +134,7 @@ fn many_transactions() {
 1, 1.0000, 0.0000, 1.0000, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
 }
 
 #[cfg(test)]
@@ -139,10 +145,10 @@ fn many_transactions_many_accounts() {
     let csv_content = read_whole_csv(input_csv_filename).unwrap();
 
     let mut clients = clients::ClientList::new();
-    let mut transations = transactions::manager::TransactionManager::new();
+    let mut transactions = transactions::manager::TransactionManager::new();
 
     //process the transactions
-    transactions::process::process_transactions(csv_content, &mut clients, &mut transations)
+    transactions::process::process_transactions(csv_content, &mut clients, &mut transactions)
         .unwrap();
 
     // check here the values in the client pool
@@ -248,5 +254,44 @@ fn many_transactions_many_accounts() {
 99, 1.0000, 0.0000, 1.0000, false
 "#;
 
-    assert_eq!(clients.to_string(), expected_result);
+    assert_clients_equal_ignore_order(&clients.to_string(), expected_result);
+}
+
+// This is a helper struct to make it easier to compare the client records
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct Client {
+    pub client: u16,
+    pub available: Decimal,
+    pub held: Decimal,
+    pub total: Decimal,
+    pub locked: bool,
+}
+
+// Parses the expected and result CSVs into a Vec of Client records and compares them
+fn parse_client_records(csv_text: &str) -> Result<Vec<Client>, csv::Error> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .from_reader(csv_text.as_bytes());
+
+    let mut records = vec![];
+    for result in rdr.deserialize() {
+        let record: Client = result?;
+        records.push(record);
+    }
+    Ok(records)
+}
+
+// Since order does not matter, we need to sort the records by client ID and then compare
+fn assert_clients_equal_ignore_order(actual: &str, expected: &str) {
+    let mut actual_records = parse_client_records(actual).expect("Failed to parse 'actual' CSV");
+    let mut expected_records =
+        parse_client_records(expected).expect("Failed to parse 'expected' CSV");
+
+    // Sort by client ID to ignore row order
+    actual_records.sort_by_key(|r| r.client);
+    expected_records.sort_by_key(|r| r.client);
+
+    for (actual, expected) in actual_records.iter().zip(expected_records.iter()) {
+        assert_eq!(actual, expected);
+    }
 }
