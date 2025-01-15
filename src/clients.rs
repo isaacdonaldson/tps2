@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt::{self, Display};
 
 use crate::decimal_to_string;
@@ -74,9 +74,9 @@ impl Client {
 }
 
 // This is a mapping of client id to client
-// We use a BTreeMap becuase the client id's are ints and are naturally ordered
+// We use a HashMap becuase the client id's are ints and are naturally ordered
 #[derive(Debug, Default)]
-pub struct ClientList(BTreeMap<ClientId, Client>);
+pub struct ClientList(HashMap<ClientId, Client>);
 
 impl ClientList {
     pub fn new() -> Self {
