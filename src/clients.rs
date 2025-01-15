@@ -74,7 +74,6 @@ impl Client {
 }
 
 // This is a mapping of client id to client
-// We use a HashMap becuase the client id's are ints and are naturally ordered
 #[derive(Debug, Default)]
 pub struct ClientList(HashMap<ClientId, Client>);
 
